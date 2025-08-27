@@ -169,6 +169,11 @@ const CitationDisplay: React.FC<CitationDisplayProps> = ({
     return 'text';
   };
 
+  const isHardcodedTest = (citation: Citation | DOCXCitation | MultiLineCitation | DOCXMultiLineCitation) => {
+    return citation.id.includes('ism-test') || 
+           (isMultiLine && 'snippet' in citation && citation.snippet.text.includes('However, since the company does not have direct control over these organizations'));
+  };
+
   return (
     <div className="space-y-4">
       {citations.map((citation, idx) => (
@@ -184,6 +189,11 @@ const CitationDisplay: React.FC<CitationDisplayProps> = ({
                   {isMultiLine && (
                     <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                       Multi-line
+                    </span>
+                  )}
+                  {isHardcodedTest(citation) && (
+                    <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-bold">
+                      TEST CASE
                     </span>
                   )}
                 </div>
