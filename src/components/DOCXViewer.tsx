@@ -7,6 +7,8 @@ interface DOCXViewerProps {}
 interface HighlightParams {
   docx: string;
   docxUrl: string;
+  type?: string;
+  multiline?: string;
 }
 
 const DOCXViewer: React.FC = () => {
@@ -17,6 +19,39 @@ const DOCXViewer: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [containerReady, setContainerReady] = useState(false);
+
+  // Get URL parameters
+  const [searchParams] = useSearchParams();
+  const docxUrl = searchParams.get('docxUrl');
+  const docxText = searchParams.get('docx');
+  const docxType = searchParams.get('type');
+  const isMultiLine = searchParams.get('multiline') === 'true';
+
+  // Initialize component and load DOCX
+  useEffect(() => {
+    setIsMounted(true);
+    
+    if (docxUrl && docxText) {
+      console.log('[DOCXViewer] Initializing with URL params:', { docxUrl, docxText, docxType, isMultiLine });
+      setHighlightParams({
+        docx: docxText,
+        docxUrl: docxUrl,
+        type: docxType || undefined,
+        multiline: isMultiLine ? 'true' : undefined,
+      });
+    } else {
+      console.log('[DOCXViewer] Missing required URL parameters');
+      setError('Missing required parameters');
+      setIsLoading(false);
+    }
+  }, [docxUrl, docxText, docxType, isMultiLine]);
+
+  // Load DOCX when highlight params are set
+  useEffect(() => {
+    if (highlightParams && isMounted) {
+      loadDOCX();
+    }
+  }, [highlightParams, isMounted]);
 
   // Callback ref to ensure container is ready
   const setContainerRef = (element: HTMLDivElement | null) => {
@@ -128,7 +163,9 @@ const DOCXViewer: React.FC = () => {
 
     // Get the target text from the URL parameters
     const targetText = highlightParams.docx; // This contains the text we're looking for
+    const isMultiLine = highlightParams.multiline === 'true';
     console.log('[DOCXViewer] Looking for text:', targetText);
+    console.log('[DOCXViewer] Is multi-line:', isMultiLine);
 
     // Normalize the target text for comparison
     const normalizeText = (text: string) => {
@@ -158,28 +195,52 @@ const DOCXViewer: React.FC = () => {
       const textNode = node as Text;
       const text = textNode.textContent || '';
       
-      // Try exact match first
-      if (text.includes(targetText)) {
-        targetNode = textNode;
-        console.log('[DOCXViewer] Found exact text match in node:', text.substring(0, 100));
-        break;
-      }
+      // For multi-line content, we need to be more flexible with matching
+      if (isMultiLine) {
+        // Try to find a partial match for multi-line content
+        const targetWords = targetText.split(/\s+/).filter(word => word.length > 3);
+        const textWords = text.split(/\s+/).filter(word => word.length > 3);
+        
+        let matchCount = 0;
+        targetWords.forEach(targetWord => {
+          if (textWords.some(textWord => 
+            textWord.toLowerCase().includes(targetWord.toLowerCase()) ||
+            targetWord.toLowerCase().includes(textWord.toLowerCase())
+          )) {
+            matchCount++;
+          }
+        });
+        
+        // If we have a good partial match (at least 3 words or 50% of target words)
+        if (matchCount >= Math.min(3, targetWords.length) || matchCount >= targetWords.length * 0.5) {
+          targetNode = textNode;
+          console.log('[DOCXViewer] Found multi-line partial match in node:', text.substring(0, 100));
+          break;
+        }
+      } else {
+        // Try exact match first for single-line content
+        if (text.includes(targetText)) {
+          targetNode = textNode;
+          console.log('[DOCXViewer] Found exact text match in node:', text.substring(0, 100));
+          break;
+        }
 
-      // Try normalized match
-      const normalizedText = normalizeText(text);
-      if (normalizedText.includes(normalizedTarget)) {
-        targetNode = textNode;
-        console.log('[DOCXViewer] Found normalized text match in node:', text.substring(0, 100));
-        break;
+        // Try normalized match
+        const normalizedText = normalizeText(text);
+        if (normalizedText.includes(normalizedTarget)) {
+          targetNode = textNode;
+          console.log('[DOCXViewer] Found normalized text match in node:', text.substring(0, 100));
+          break;
+        }
       }
 
       // Calculate similarity score for partial matches
-      const words = normalizedTarget.split(' ').filter(w => w.length > 3); // Only consider words longer than 3 chars
-      const textWords = normalizedText.split(' ').filter(w => w.length > 3);
+      const words = normalizedTarget.split(' ').filter((w: string) => w.length > 3); // Only consider words longer than 3 chars
+      const textWords = normalizeText(text).split(' ').filter((w: string) => w.length > 3);
       
       let matchScore = 0;
-      words.forEach(word => {
-        if (textWords.some(textWord => textWord.includes(word) || word.includes(textWord))) {
+      words.forEach((word: string) => {
+        if (textWords.some((textWord: string) => textWord.includes(word) || word.includes(textWord))) {
           matchScore += 1;
         }
       });
@@ -225,11 +286,12 @@ const DOCXViewer: React.FC = () => {
           const afterNode = document.createTextNode(afterText);
           const spanNode = document.createElement('span');
           spanNode.textContent = targetTextActual;
-          spanNode.style.backgroundColor = 'rgba(255, 255, 0, 0.4)';
-          spanNode.style.border = '2px solid rgba(255, 200, 0, 0.9)';
-          spanNode.style.borderRadius = '2px';
-          spanNode.style.padding = '2px 4px';
+          spanNode.style.backgroundColor = isMultiLine ? 'rgba(255, 165, 0, 0.6)' : 'rgba(255, 255, 0, 0.4)';
+          spanNode.style.border = isMultiLine ? '3px solid rgba(255, 140, 0, 0.9)' : '2px solid rgba(255, 200, 0, 0.9)';
+          spanNode.style.borderRadius = '4px';
+          spanNode.style.padding = isMultiLine ? '4px 8px' : '2px 4px';
           spanNode.style.display = 'inline';
+          spanNode.style.fontWeight = isMultiLine ? 'bold' : 'normal';
           
           // Replace the original text node with the new structure
           if (targetNode.parentNode) {
@@ -287,11 +349,12 @@ const DOCXViewer: React.FC = () => {
             const afterNode = document.createTextNode(originalAfter);
             const spanNode = document.createElement('span');
             spanNode.textContent = originalTarget;
-            spanNode.style.backgroundColor = 'rgba(255, 255, 0, 0.4)';
-            spanNode.style.border = '2px solid rgba(255, 200, 0, 0.9)';
-            spanNode.style.borderRadius = '2px';
-            spanNode.style.padding = '2px 4px';
+            spanNode.style.backgroundColor = isMultiLine ? 'rgba(255, 165, 0, 0.6)' : 'rgba(255, 255, 0, 0.4)';
+            spanNode.style.border = isMultiLine ? '3px solid rgba(255, 140, 0, 0.9)' : '2px solid rgba(255, 200, 0, 0.9)';
+            spanNode.style.borderRadius = '4px';
+            spanNode.style.padding = isMultiLine ? '4px 8px' : '2px 4px';
             spanNode.style.display = 'inline';
+            spanNode.style.fontWeight = isMultiLine ? 'bold' : 'normal';
             
             if (targetNode.parentNode) {
               targetNode.parentNode.replaceChild(beforeNode, targetNode);

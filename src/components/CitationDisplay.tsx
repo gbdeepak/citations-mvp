@@ -1,22 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Citation, createHighlightURL } from '../utils/pdfUtils';
-import { DOCXCitation, createDOCXHighlightURL } from '../utils/docxUtils';
+import { Citation, MultiLineCitation, createHighlightURL, createMultiLineHighlightURL } from '../utils/pdfUtils';
+import { DOCXCitation, DOCXMultiLineCitation, createDOCXHighlightURL, createDOCXMultiLineHighlightURL } from '../utils/docxUtils';
 import PDFPreviewTooltip from './PDFPreviewTooltip';
 import DOCXPreviewTooltip from './DOCXPreviewTooltip';
 
 interface CitationDisplayProps {
-  citations: Citation[] | DOCXCitation[];
+  citations: Citation[] | DOCXCitation[] | MultiLineCitation[] | DOCXMultiLineCitation[];
   pdfFile?: File;
   docxFile?: File;
   fileType?: 'pdf' | 'docx';
+  isMultiLine?: boolean;
 }
 
 const CitationDisplay: React.FC<CitationDisplayProps> = ({ 
   citations, 
   pdfFile, 
   docxFile, 
-  fileType = 'pdf' 
+  fileType = 'pdf',
+  isMultiLine = false
 }) => {
   const navigate = useNavigate();
   const [hoveredCitation, setHoveredCitation] = useState<string | null>(null);
@@ -39,25 +41,38 @@ const CitationDisplay: React.FC<CitationDisplayProps> = ({
       console.log('[CitationDisplay] File URL:', fileUrl);
       console.log('[CitationDisplay] Citations count:', citations.length);
       console.log('[CitationDisplay] File type:', fileType);
+      console.log('[CitationDisplay] Is multi-line:', isMultiLine);
     }
-  }, [DEBUG_ALWAYS_SHOW_TOOLTIP, debugCitationId, fileUrl, citations.length, fileType]);
+  }, [DEBUG_ALWAYS_SHOW_TOOLTIP, debugCitationId, fileUrl, citations.length, fileType, isMultiLine]);
 
-  const handleReferenceClick = (citation: Citation | DOCXCitation) => {
-    if (fileType === 'pdf' && 'snippet' in citation && 'page' in citation.snippet) {
-      // PDF citation
-      const params = new URLSearchParams({
-        pdf: fileUrl,
-        page: citation.snippet.page.toString(),
-        x: citation.snippet.x.toString(),
-        y: citation.snippet.y.toString(),
-        width: citation.snippet.width.toString(),
-        height: citation.snippet.height.toString(),
-      });
-      window.open(`/viewer?${params.toString()}`, '_blank');
-    } else if (fileType === 'docx' && 'snippet' in citation && 'paragraphIndex' in citation.snippet) {
-      // DOCX citation - use the new URL creation function
-      const docxUrl = createDOCXHighlightURL(fileUrl, citation.snippet);
-      window.open(docxUrl, '_blank');
+  const handleReferenceClick = (citation: Citation | DOCXCitation | MultiLineCitation | DOCXMultiLineCitation) => {
+    if (fileType === 'pdf') {
+      if (isMultiLine && 'snippet' in citation && 'lines' in citation.snippet) {
+        // Multi-line PDF citation
+        const multiLineUrl = createMultiLineHighlightURL(fileUrl, citation.snippet as any);
+        window.open(multiLineUrl, '_blank');
+      } else if ('snippet' in citation && 'page' in citation.snippet) {
+        // Single-line PDF citation
+        const params = new URLSearchParams({
+          pdf: fileUrl,
+          page: citation.snippet.page.toString(),
+          x: citation.snippet.x.toString(),
+          y: citation.snippet.y.toString(),
+          width: citation.snippet.width.toString(),
+          height: citation.snippet.height.toString(),
+        });
+        window.open(`/viewer?${params.toString()}`, '_blank');
+      }
+    } else if (fileType === 'docx') {
+      if (isMultiLine && 'snippet' in citation && 'lines' in citation.snippet) {
+        // Multi-line DOCX citation
+        const multiLineUrl = createDOCXMultiLineHighlightURL(fileUrl, citation.snippet as any);
+        window.open(multiLineUrl, '_blank');
+      } else if ('snippet' in citation && 'paragraphIndex' in citation.snippet) {
+        // Single-line DOCX citation
+        const docxUrl = createDOCXHighlightURL(fileUrl, citation.snippet as any);
+        window.open(docxUrl, '_blank');
+      }
     }
   };
 
@@ -112,6 +127,48 @@ const CitationDisplay: React.FC<CitationDisplayProps> = ({
     };
   }, []);
 
+  const getCitationText = (citation: Citation | DOCXCitation | MultiLineCitation | DOCXMultiLineCitation) => {
+    if (isMultiLine && 'snippet' in citation && 'lines' in citation.snippet) {
+      // Multi-line citation - format the text nicely
+      const multiLineSnippet = citation.snippet as any;
+      return multiLineSnippet.text.replace(/\n/g, '\n  '); // Add indentation for better readability
+    } else {
+      // Single-line citation
+      return 'text' in citation ? citation.text : citation.snippet.text;
+    }
+  };
+
+  const getCitationLocation = (citation: Citation | DOCXCitation | MultiLineCitation | DOCXMultiLineCitation) => {
+    if (isMultiLine && 'snippet' in citation && 'lines' in citation.snippet) {
+      const multiLineSnippet = citation.snippet as any;
+      const lineCount = multiLineSnippet.lines.length;
+      const type = multiLineSnippet.type || 'content';
+      
+      if (fileType === 'pdf' && 'page' in multiLineSnippet) {
+        return `Page ${multiLineSnippet.page} - ${lineCount} line${lineCount > 1 ? 's' : ''} (${type})`;
+      } else if (fileType === 'docx' && 'paragraphIndices' in multiLineSnippet) {
+        const startPara = Math.min(...multiLineSnippet.paragraphIndices) + 1;
+        const endPara = Math.max(...multiLineSnippet.paragraphIndices) + 1;
+        return `Paragraphs ${startPara}-${endPara} - ${lineCount} line${lineCount > 1 ? 's' : ''} (${type})`;
+      }
+    } else if ('snippet' in citation) {
+      if (fileType === 'pdf' && 'page' in citation.snippet) {
+        return `Page ${citation.snippet.page}`;
+      } else if (fileType === 'docx' && 'paragraphIndex' in citation.snippet) {
+        return `Paragraph ${citation.snippet.paragraphIndex + 1}`;
+      }
+    }
+    return 'Unknown location';
+  };
+
+  const getCitationType = (citation: Citation | DOCXCitation | MultiLineCitation | DOCXMultiLineCitation) => {
+    if (isMultiLine && 'snippet' in citation && 'lines' in citation.snippet) {
+      const multiLineSnippet = citation.snippet as any;
+      return multiLineSnippet.type || 'content';
+    }
+    return 'text';
+  };
+
   return (
     <div className="space-y-4">
       {citations.map((citation, idx) => (
@@ -119,17 +176,37 @@ const CitationDisplay: React.FC<CitationDisplayProps> = ({
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <p className="text-gray-800 mb-2">
-                  "{fileType === 'pdf' && 'text' in citation ? citation.text : citation.snippet.text}"
-                </p>
+                {/* Citation Type Badge */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-medium text-gray-500">
+                    {getCitationType(citation).toUpperCase()}
+                  </span>
+                  {isMultiLine && (
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                      Multi-line
+                    </span>
+                  )}
+                </div>
+                
+                {/* Citation Text */}
+                <div className="mb-2">
+                  {isMultiLine ? (
+                    <pre className="text-gray-800 whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                      "{getCitationText(citation)}"
+                    </pre>
+                  ) : (
+                    <p className="text-gray-800">
+                      "{getCitationText(citation)}"
+                    </p>
+                  )}
+                </div>
+                
+                {/* Location Info */}
                 <p className="text-sm text-gray-500">
-                  {fileType === 'pdf' && 'page' in citation.snippet 
-                    ? `Page ${citation.snippet.page}` 
-                    : 'paragraphIndex' in citation.snippet 
-                      ? `Paragraph ${citation.snippet.paragraphIndex + 1}`
-                      : 'Unknown location'}
+                  {getCitationLocation(citation)}
                 </p>
               </div>
+              
               <button
                 ref={(el) => { buttonRefs.current[citation.id] = el; }}
                 onClick={() => handleReferenceClick(citation)}

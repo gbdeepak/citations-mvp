@@ -5,8 +5,8 @@ import FileUploader from './components/FileUploader';
 import CitationDisplay from './components/CitationDisplay';
 import PDFViewer from './components/PDFViewer';
 import DOCXViewer from './components/DOCXViewer';
-import { Citation } from './utils/pdfUtils';
-import { DOCXCitation } from './utils/docxUtils';
+import { Citation, MultiLineCitation } from './utils/pdfUtils';
+import { DOCXCitation, DOCXMultiLineCitation } from './utils/docxUtils';
 import { FileType } from './utils/fileUtils';
 
 const HomePage: React.FC = () => {
@@ -14,8 +14,11 @@ const HomePage: React.FC = () => {
   const [docxFile, setDocxFile] = useState<File | null>(null);
   const [pdfCitations, setPdfCitations] = useState<Citation[]>([]);
   const [docxCitations, setDocxCitations] = useState<DOCXCitation[]>([]);
+  const [pdfMultiLineCitations, setPdfMultiLineCitations] = useState<MultiLineCitation[]>([]);
+  const [docxMultiLineCitations, setDocxMultiLineCitations] = useState<DOCXMultiLineCitation[]>([]);
   const [fileType, setFileType] = useState<FileType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [useMultiLine, setUseMultiLine] = useState(true); // Default to multi-line extraction
 
   const handleFileSelect = async (file: File, type: FileType) => {
     setLoading(true);
@@ -24,24 +27,48 @@ const HomePage: React.FC = () => {
         setPdfFile(file);
         setDocxFile(null);
         setDocxCitations([]);
+        setDocxMultiLineCitations([]);
         
-        // Import PDF utilities dynamically to avoid circular dependencies
-        const { extractTextFromPDF, getRandomSnippets, createCitations } = await import('./utils/pdfUtils');
-        const snippets = await extractTextFromPDF(file);
-        const randomSnippets = getRandomSnippets(snippets, 3);
-        const citations = createCitations(randomSnippets);
-        setPdfCitations(citations);
+        if (useMultiLine) {
+          // Use multi-line extraction
+          const { extractMultiLineTextFromPDF, getRandomMultiLineSnippets, createMultiLineCitations } = await import('./utils/pdfUtils');
+          const snippets = await extractMultiLineTextFromPDF(file);
+          const randomSnippets = getRandomMultiLineSnippets(snippets, 3);
+          const citations = createMultiLineCitations(randomSnippets);
+          setPdfMultiLineCitations(citations);
+          setPdfCitations([]);
+        } else {
+          // Use single-line extraction (legacy)
+          const { extractTextFromPDF, getRandomSnippets, createCitations } = await import('./utils/pdfUtils');
+          const snippets = await extractTextFromPDF(file);
+          const randomSnippets = getRandomSnippets(snippets, 3);
+          const citations = createCitations(randomSnippets);
+          setPdfCitations(citations);
+          setPdfMultiLineCitations([]);
+        }
       } else if (type === 'docx') {
         setDocxFile(file);
         setPdfFile(null);
         setPdfCitations([]);
+        setPdfMultiLineCitations([]);
         
-        // Import DOCX utilities dynamically
-        const { extractTextFromDOCX, getRandomDOCXSnippets, createDOCXCitations } = await import('./utils/docxUtils');
-        const snippets = await extractTextFromDOCX(file);
-        const randomSnippets = getRandomDOCXSnippets(snippets, 3);
-        const citations = createDOCXCitations(randomSnippets);
-        setDocxCitations(citations);
+        if (useMultiLine) {
+          // Use multi-line extraction
+          const { extractMultiLineTextFromDOCX, getRandomDOCXMultiLineSnippets, createDOCXMultiLineCitations } = await import('./utils/docxUtils');
+          const snippets = await extractMultiLineTextFromDOCX(file);
+          const randomSnippets = getRandomDOCXMultiLineSnippets(snippets, 3);
+          const citations = createDOCXMultiLineCitations(randomSnippets);
+          setDocxMultiLineCitations(citations);
+          setDocxCitations([]);
+        } else {
+          // Use single-line extraction (legacy)
+          const { extractTextFromDOCX, getRandomDOCXSnippets, createDOCXCitations } = await import('./utils/docxUtils');
+          const snippets = await extractTextFromDOCX(file);
+          const randomSnippets = getRandomDOCXSnippets(snippets, 3);
+          const citations = createDOCXCitations(randomSnippets);
+          setDocxCitations(citations);
+          setDocxMultiLineCitations([]);
+        }
       }
       setFileType(type);
     } catch (error) {
@@ -50,6 +77,16 @@ const HomePage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetFile = () => {
+    setPdfFile(null);
+    setDocxFile(null);
+    setPdfCitations([]);
+    setDocxCitations([]);
+    setPdfMultiLineCitations([]);
+    setDocxMultiLineCitations([]);
+    setFileType(null);
   };
 
   return (
@@ -65,7 +102,44 @@ const HomePage: React.FC = () => {
         </div>
 
         {!pdfFile && !docxFile ? (
-          <FileUploader onFileSelect={handleFileSelect} />
+          <div className="space-y-6">
+            {/* Extraction Mode Toggle */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-center space-x-4">
+                <span className="text-sm font-medium text-gray-700">Extraction Mode:</span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setUseMultiLine(false)}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      !useMultiLine
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Single Line
+                  </button>
+                  <button
+                    onClick={() => setUseMultiLine(true)}
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                      useMultiLine
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Multi Line
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                {useMultiLine 
+                  ? 'Extract complex structures like bullet points, tables, and multi-line content'
+                  : 'Extract simple single-line text snippets'
+                }
+              </p>
+            </div>
+
+            <FileUploader onFileSelect={handleFileSelect} />
+          </div>
         ) : (
           <div className="space-y-6">
             {/* File Info */}
@@ -78,15 +152,12 @@ const HomePage: React.FC = () => {
                   <p className="text-gray-600">
                     {pdfFile?.name || docxFile?.name}
                   </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Mode: {useMultiLine ? 'Multi-line' : 'Single-line'} extraction
+                  </p>
                 </div>
                 <button
-                  onClick={() => {
-                    setPdfFile(null);
-                    setDocxFile(null);
-                    setPdfCitations([]);
-                    setDocxCitations([]);
-                    setFileType(null);
-                  }}
+                  onClick={resetFile}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,14 +182,44 @@ const HomePage: React.FC = () => {
                   Random Citations
                 </h3>
                 {fileType === 'pdf' && pdfFile && (
-                  <CitationDisplay citations={pdfCitations} pdfFile={pdfFile} />
+                  <>
+                    {useMultiLine && pdfMultiLineCitations.length > 0 && (
+                      <CitationDisplay 
+                        citations={pdfMultiLineCitations} 
+                        pdfFile={pdfFile}
+                        fileType="pdf"
+                        isMultiLine={true}
+                      />
+                    )}
+                    {!useMultiLine && pdfCitations.length > 0 && (
+                      <CitationDisplay 
+                        citations={pdfCitations} 
+                        pdfFile={pdfFile}
+                        fileType="pdf"
+                        isMultiLine={false}
+                      />
+                    )}
+                  </>
                 )}
                 {fileType === 'docx' && docxFile && (
-                  <CitationDisplay 
-                    citations={docxCitations} 
-                    docxFile={docxFile}
-                    fileType="docx"
-                  />
+                  <>
+                    {useMultiLine && docxMultiLineCitations.length > 0 && (
+                      <CitationDisplay 
+                        citations={docxMultiLineCitations} 
+                        docxFile={docxFile}
+                        fileType="docx"
+                        isMultiLine={true}
+                      />
+                    )}
+                    {!useMultiLine && docxCitations.length > 0 && (
+                      <CitationDisplay 
+                        citations={docxCitations} 
+                        docxFile={docxFile}
+                        fileType="docx"
+                        isMultiLine={false}
+                      />
+                    )}
+                  </>
                 )}
               </div>
             )}
